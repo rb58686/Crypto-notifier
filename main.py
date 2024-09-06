@@ -1,12 +1,10 @@
-import linecache
-import os
 import time
 
 import requests, json
 from winotify import Notification
-import tracemalloc
 
-import config
+import utils
+import confighandler
 
 test_response = ("{\"status\":{\"timestamp\":\"2024-09-05T09:55:25.205Z\",\"error_code\":0,\"error_message\":null,"
                  "\"elapsed\":41,\"credit_count\":1,\"notice\":null},\"data\":{\"id\":20396,\"symbol\":\"KAS\","
@@ -16,12 +14,12 @@ response_counter = 0
 
 
 def get_response():
-    request1 = requests.request("GET", url=config.URL, params=config.PARAMS, headers=config.HEADER)
+    request1 = requests.request("GET", url=utils.URL, params=utils.PARAMS, headers=utils.HEADER)
     content1 = json.dumps(request1.text, indent=4, sort_keys=True, default=lambda o: '<not serializable>')
     return str(content1)
 
 
-def get_kas_price(json_content):
+def get_price(json_content):
     global response_counter
     content1 = json.loads(json_content)
     kas_price = content1["data"]["quote"]["USD"]["price"]
@@ -113,34 +111,7 @@ def check_time():
             return False
 
 
-def display_top(snapshot, key_type='lineno', limit=3):
-    snapshot = snapshot.filter_traces((
-        tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
-        tracemalloc.Filter(False, "<unknown>"),
-    ))
-    top_stats = snapshot.statistics(key_type)
-
-    print("Top %s lines" % limit)
-    for index, stat in enumerate(top_stats[:limit], 1):
-        frame = stat.traceback[0]
-        # replace "/path/to/module/file.py" with "module/file.py"
-        filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-        print("#%s: %s:%s: %.1f KiB"
-              % (index, filename, frame.lineno, stat.size / 1024))
-        line = linecache.getline(frame.filename, frame.lineno).strip()
-        if line:
-            print('    %s' % line)
-
-    other = top_stats[limit:]
-    if other:
-        size = sum(stat.size for stat in other)
-        print("%s other: %.1f KiB" % (len(other), size / 1024))
-    total = sum(stat.size for stat in top_stats)
-    print("Total allocated size: %.1f KiB" % (total / 1024))
-
-
 def main():
-    # tracemalloc.start()
     notif = Notification(app_id="Crypto widget", title="Process started", msg="Process is running in background",
                            duration="short")
     notif.show()
@@ -148,13 +119,20 @@ def main():
         a = check_time()
         if a == True:
             if check_counter() == False:
-                kp1 = str(round(get_kas_price(json.loads(get_response())), 5))
-                notif = Notification(app_id="Crypto widget", title="KAS price", msg=kp1, duration="short")
+                title = confighandler.symbol + " price"
+                price = round(get_price(json.loads(get_response())), 5)
+                custom_amount1 = round(price * confighandler.amount, 5)
+                custom_amount = "$ " + str(custom_amount1)
+                if confighandler.amount != 0:
+                    msg = str(price) + "\n" + str(confighandler.amount) + " " + confighandler.symbol + " = " + custom_amount
+                    msg.encode('ascii')
+                else: msg = str(price)
+                notif = Notification(app_id="Crypto notifier", title=title, msg=msg, duration="short")
+                notif.show()
+            elif check_counter() == True:
+                notif = Notification(app_id="Crypto notifier", title="Error", msg="Counter limit exceeded", duration="short")
                 notif.show()
         time.sleep(60)
-        # snapshot = tracemalloc.take_snapshot()
-        # display_top(snapshot)
-        # tracemalloc.stop()
 
 
 if __name__ == "__main__":
